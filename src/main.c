@@ -6,6 +6,12 @@
 
 static volatile os_timer_t some_timer;
 
+struct station_config STATION_CONFIG = {
+	.ssid = WIFI_SSID,
+	.password = WIFI_PASS,
+	.bssid_set = 0
+};
+
 void scan_callback(void *arg, STATUS status)
 {
 	if (status != OK) {
@@ -21,7 +27,17 @@ void scan_callback(void *arg, STATUS status)
 	os_printf("\n");
 }
 
-void some_timerfunc(void *arg) { wifi_station_scan(NULL, scan_callback); }
+void some_timerfunc(void *arg)
+{
+	uint8 status = wifi_station_get_connect_status();
+
+	if (status == STATION_CONNECTING)
+		os_printf("Connecting to AP...\n");
+	else if (status != STATION_GOT_IP) {
+		os_printf("Not connected, initiating scan...\n");
+		wifi_station_scan(NULL, scan_callback);
+	}
+}
 
 void ICACHE_FLASH_ATTR user_init()
 {
@@ -29,8 +45,8 @@ void ICACHE_FLASH_ATTR user_init()
 	uart_div_modify(0, UART_CLK_FREQ / 115200);
 	os_printf("Starting...\n");
 
-	/* we operate in station mode */
-	wifi_set_opmode(1);
+	wifi_set_opmode(1); /* station mode */
+	wifi_station_set_config(&STATION_CONFIG);
 
 	/* setup timer (5000ms, repeating) */
 	os_timer_setfn(&some_timer, (os_timer_func_t *)some_timerfunc, NULL);
