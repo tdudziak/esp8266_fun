@@ -14,12 +14,6 @@ static MQTT_Client mqtt_client;
 static volatile os_timer_t some_timer;
 static uint8 wifi_status = STATION_IDLE;
 
-struct station_config STATION_CONFIG = {
-	.ssid = WIFI_SSID,
-	.password = WIFI_PASS,
-	.bssid_set = 0
-};
-
 static void ICACHE_FLASH_ATTR dmesg(const char *format, ...)
 {
 	const size_t BUFFER_SIZE = 256;
@@ -101,7 +95,11 @@ void ICACHE_FLASH_ATTR user_init()
 	uart_div_modify(0, UART_CLK_FREQ / 115200);
 
 	wifi_set_opmode(1); /* station mode */
-	wifi_station_set_config(&STATION_CONFIG);
+	struct station_config config;
+	os_bzero(&config, sizeof(config));
+	strncpy((char *)config.ssid, WIFI_SSID, sizeof(config.ssid));
+	strncpy((char *)config.password, WIFI_PASS, sizeof(config.password));
+	wifi_station_set_config(&config);
 
 	MQTT_InitConnection(&mqtt_client, MQTT_HOST, MQTT_PORT, 0);
 	MQTT_InitClient(&mqtt_client, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS,
