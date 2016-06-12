@@ -1,3 +1,5 @@
+#include <stdarg.h>
+
 #include "ets_sys.h"
 #include "osapi.h"
 #include "gpio.h"
@@ -17,27 +19,48 @@ struct station_config STATION_CONFIG = {
 	.bssid_set = 0
 };
 
-static void on_mqtt_connected(uint32_t *args)
+#if 0
+/* FIXME: doesn't fit in .text */
+static void ICACHE_FLASH_ATTR dmesg(const char *format, ...)
 {
-	os_printf("Connected to MQTT broker\n");
-	const char *msg = "Hello, world!";
-	MQTT_Publish(&mqtt_client, MQTT_TOPIC_PREFIX "/hello", msg, strlen(msg),
-		     0, 0);
+	char buffer[256];
+	va_list args;
+	va_start(args, format);
+	int n = vsnprintf(buffer, sizeof(buffer), format, args);
+	va_end(args);
+
+	if (n > 0 && n < sizeof(buffer))
+		MQTT_Publish(&mqtt_client, TOPIC_DMESG, buffer, n, 0, 1);
+}
+#endif
+
+static void ICACHE_FLASH_ATTR dmesg(const char *msg)
+{
+	MQTT_Publish(&mqtt_client, TOPIC_DMESG, msg, strlen(msg), 0, 1);
 }
 
 static void on_scan_ready(void *arg, STATUS status)
 {
 	if (status != OK) {
-		os_printf("Scan failed\n");
+		dmesg("Scan failed");
 		return;
 	}
 
 	struct bss_info *bss = (struct bss_info *)arg;
 	while (bss != NULL) {
-		os_printf("%32s (channel %d)\n", bss->ssid, bss->channel);
+		// os_printf("%32s (channel %d)\n", bss->ssid, bss->channel);
+		MQTT_Publish(&mqtt_client, TOPIC_DMESG, bss->ssid, 32, 0, 1);
+
 		bss = bss->next.stqe_next;
 	}
 	os_printf("\n");
+}
+
+static void on_mqtt_connected(uint32_t *args)
+{
+	dmesg("Hello, world!");
+	MQTT_InitLWT(&mqtt_client, TOPIC_DMESG, "Goodbye, cruel world!", 0, 1);
+	MQTT_Subscribe(&mqtt_client, TOPIC_CONTROL, 0);
 }
 
 void on_timer(void *arg)
@@ -46,36 +69,49 @@ void on_timer(void *arg)
 
 	if (new_status != wifi_status) {
 		if (new_status == STATION_GOT_IP) {
-			os_printf("Attempting to connect to MQTT broker\n");
 			MQTT_Connect(&mqtt_client);
 		} else {
 			MQTT_Disconnect(&mqtt_client);
 		}
 	}
 
-	if (new_status != STATION_GOT_IP) {
-		os_printf("Not connected, initiating scan...\n");
-		wifi_station_scan(NULL, on_scan_ready);
-	}
-
 	wifi_status = new_status;
+}
+
+void on_mqtt_data(uint32_t *args, const char *topic, uint32_t topic_len,
+		  const char *data, uint32_t data_len)
+{
+	char cmd[256];
+
+	if (data_len < sizeof(cmd)) {
+		os_memcpy(cmd, data, data_len);
+		cmd[data_len] = '\0';
+
+		/* echo back the message */
+		dmesg(cmd);
+
+		if (strcmp("SCAN", cmd) == 0)
+			wifi_station_scan(NULL, on_scan_ready);
+	}
 }
 
 void ICACHE_FLASH_ATTR user_init()
 {
 	/* set baud rate */
 	uart_div_modify(0, UART_CLK_FREQ / 115200);
-	os_printf("Starting...\n");
 
 	wifi_set_opmode(1); /* station mode */
 	wifi_station_set_config(&STATION_CONFIG);
 
 	MQTT_InitConnection(&mqtt_client, MQTT_HOST, MQTT_PORT, 0);
-	MQTT_OnConnected(&mqtt_client, on_mqtt_connected);
 	MQTT_InitClient(&mqtt_client, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS,
 			MQTT_KEEPALIVE, MQTT_CLEAN_SESSION);
+	MQTT_OnConnected(&mqtt_client, on_mqtt_connected);
+	MQTT_OnData(&mqtt_client, on_mqtt_data);
 
-	/* setup timer (5000ms, repeating) */
+	dmesg("Starting up");
+
+	/* setup timer (1000ms, repeating) */
 	os_timer_setfn(&some_timer, (os_timer_func_t *)on_timer, NULL);
-	os_timer_arm(&some_timer, 5000, 1);
+	os_timer_arm(&some_timer, 1000, 1);
 }
