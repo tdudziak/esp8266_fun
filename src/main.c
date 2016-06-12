@@ -84,8 +84,12 @@ void on_mqtt_data(uint32_t *args, const char *topic, uint32_t topic_len,
 		/* echo back the message */
 		dmesg(cmd);
 
-		if (strcmp("SCAN", cmd) == 0)
+		if (strcmp("SCAN", cmd) == 0) {
 			wifi_station_scan(NULL, on_scan_ready);
+		} else if (strcmp("ADC_READ", cmd) == 0) {
+			uint16 adc_in = system_adc_read();
+			dmesg("adc_in=%hu", (unsigned short)adc_in);
+		}
 	}
 }
 
