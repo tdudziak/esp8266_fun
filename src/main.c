@@ -4,6 +4,7 @@
 #include "osapi.h"
 #include "gpio.h"
 #include "os_type.h"
+#include "mem.h"
 #include "user_interface.h"
 
 /* MQTT library from https://github.com/tuanpmt/esp_mqtt */
@@ -19,24 +20,24 @@ struct station_config STATION_CONFIG = {
 	.bssid_set = 0
 };
 
-#if 0
-/* FIXME: doesn't fit in .text */
 static void ICACHE_FLASH_ATTR dmesg(const char *format, ...)
 {
-	char buffer[256];
+	const size_t BUFFER_SIZE = 256;
+
+	char *buffer = (char *)os_malloc(BUFFER_SIZE);
+	if (!buffer)
+		return;
+	;
+
 	va_list args;
 	va_start(args, format);
-	int n = vsnprintf(buffer, sizeof(buffer), format, args);
+	int n = ets_vsnprintf(buffer, BUFFER_SIZE, format, args);
 	va_end(args);
 
-	if (n > 0 && n < sizeof(buffer))
+	if (n > 0 && n < BUFFER_SIZE)
 		MQTT_Publish(&mqtt_client, TOPIC_DMESG, buffer, n, 0, 1);
-}
-#endif
 
-static void ICACHE_FLASH_ATTR dmesg(const char *msg)
-{
-	MQTT_Publish(&mqtt_client, TOPIC_DMESG, msg, strlen(msg), 0, 1);
+	os_free(buffer);
 }
 
 static void on_scan_ready(void *arg, STATUS status)
@@ -47,13 +48,12 @@ static void on_scan_ready(void *arg, STATUS status)
 	}
 
 	struct bss_info *bss = (struct bss_info *)arg;
+	// FIXME: would be much better to only send one message
 	while (bss != NULL) {
-		// os_printf("%32s (channel %d)\n", bss->ssid, bss->channel);
-		MQTT_Publish(&mqtt_client, TOPIC_DMESG, bss->ssid, 32, 0, 1);
-
+		bss->ssid[sizeof(bss->ssid) - 1] = '\0';
+		dmesg("ssid=%s channel=%d", bss->ssid, bss->channel);
 		bss = bss->next.stqe_next;
 	}
-	os_printf("\n");
 }
 
 static void on_mqtt_connected(uint32_t *args)
